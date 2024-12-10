@@ -1,45 +1,56 @@
-name: CI/CD for Embedded Project
+# Name of the workflow
+name: Deploy new version
 
+# Define the trigger event(s)
+# Only deploy when a new tag is pushed ('push:tags:') or manually (with 'workflow_dispatch:')
+# If pushing tag, it has to match "v*.*.*"
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+    workflow_dispatch:
+    push:
+        tags:
+          - "v*.*.*"
+          
+# Must match the project() name in CMakeLists.txt, variable used below to copy .hex file
+env:
+    APP_NAME: TSM_PicoW_CI_CD
+    
+# Allow this workflow to write back to the repository
+permissions:
+    contents: write
 
+# Jobs run in parallel by default, each runs steps in sequence
 jobs:
-  build:
+  # Job to print something out
+  # say-hello:
+  #  runs-on: ubuntu-latest
+  #  steps:
+  #    - name: Say hello
+  #      run: echo "Hello, GitHub Actions!"
+
+  # Build binary and send to releases
+  build-and-deploy:
     runs-on: ubuntu-latest
-
+    name: Build and deploy
     steps:
-    # Step 1: Checkout the code
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Check out this repository
+        uses: actions/checkout@v4
 
-    # Step 2: Set up Docker environment
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-
-    # Step 3: Build Docker image
-    - name: Build Docker Image
-      run: docker build -t cicd-image .
-
-    # Step 4: Run Docker Container
-    - name: Create Docker Container
-      run: docker create -i -t --name cicd-container cicd-image
-
-    # Step 5: Start Container and Run Tests
-    - name: Start Docker Container and Run Tests
-      run: |
-        docker start -i cicd-container
-        docker exec cicd-container bash -c "
-        cd /project &&
-        ctest --verbose --extra-verbose --test-dir build/test"
-
-    # Step 6: Upload Test Results (Optional)
-    - name: Archive Test Results
-      uses: actions/upload-artifact@v3
-      with:
-        name: test-results
-        path: build/test
+      - name: Build Docker image
+        run: docker build -t tsmcicd-image .
+        
+      - name: Create Docker container
+        run: docker create --name tsmcicd-container tsmcicd-image
+        
+      - name: Copy out Intel Hex file
+        run: docker cp tsmcicd-container:/project/build/release/${APP_NAME}.hex ./${APP_NAME}.hex
+        
+      - name: Put environment variable into the env context
+        run: echo "app_name=$APP_NAME" >> $GITHUB_ENV
+        
+        # for the push, we need the tag! This step is skipped if we run it manually
+      - name: Push to release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+            files: ${{ env.app_name }}.hex
+            body_path: CHANGELOG.md
