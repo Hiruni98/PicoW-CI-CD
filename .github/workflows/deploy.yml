@@ -1,0 +1,45 @@
+name: CI/CD for Embedded Project
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Step 1: Checkout the code
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # Step 2: Set up Docker environment
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    # Step 3: Build Docker image
+    - name: Build Docker Image
+      run: docker build -t cicd-image .
+
+    # Step 4: Run Docker Container
+    - name: Create Docker Container
+      run: docker create -i -t --name cicd-container cicd-image
+
+    # Step 5: Start Container and Run Tests
+    - name: Start Docker Container and Run Tests
+      run: |
+        docker start -i cicd-container
+        docker exec cicd-container bash -c "
+        cd /project &&
+        ctest --verbose --extra-verbose --test-dir build/test"
+
+    # Step 6: Upload Test Results (Optional)
+    - name: Archive Test Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results
+        path: build/test
